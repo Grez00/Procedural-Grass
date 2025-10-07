@@ -1,0 +1,82 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+RWStructuredBuffer<float4x4> _TransformMatrices;
+
+Texture2D _NoiseTex;
+SamplerState sampler_NoiseTex;
+
+Texture2D _SizeTex;
+SamplerState sampler_SizeTex;
+
+float _MinHeight;
+float _MaxHeight;
+
+float2 _Min;
+float2 _Max;
+float _YPos;
+
+int _Resolution;
+
+float3 _Scale;
+float4x4 _RotationMatrix;
+
+float _GrassHeight;
+float _GrassCenter;
+
+#define TWO_PI 6.28318530718
+
+float RandomRange(float2 seed, float min, float max)
+{
+	float randnum = frac(sin(dot(seed, float2(12.9898, 78.233)))*43758.5453);
+	return lerp(min, max, randnum);
+}
+
+float4x4 RotationMatrixY(float angle)
+{
+	float s, c;
+	sincos(angle, s, c);
+
+	return float4x4
+	(
+		 c, 0, s, 0,
+		 0, 1, 0, 0,
+		-s, 0, c, 0,
+		 0, 0, 0, 1
+	);
+}
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+	float size = _Max.x - _Min.x;
+	float stepSize = size / (float)_Resolution;
+
+	float2 Seed1 = float2(id.x, id.y);
+	float2 Seed2 = float2(id.y, id.x);
+
+	float offsetX = RandomRange(Seed1, 0.0, 0.5 * stepSize);
+	float offsetZ = RandomRange(Seed2, 0.0, 0.5 * stepSize);
+
+    float grassPosX = _Min.x + offsetX + id.x * stepSize;
+    float grassPosZ = _Min.y + offsetZ + id.y * stepSize;
+
+    float2 uv = float2((grassPosX - _Min.x) / (_Max.x - _Min.x), (grassPosZ - _Min.y) / (_Max.y - _Min.y));
+
+	float yScale = _Scale.y * lerp(_MinHeight, _MaxHeight, _SizeTex.SampleLevel(sampler_SizeTex, uv, 0).r);
+	float grassHeight = _GrassHeight * yScale;
+    float yPos = _YPos += length(_NoiseTex.SampleLevel(sampler_NoiseTex, uv, 0)) + (grassHeight * _GrassCenter)*0.5;
+    float3 grassPos = float3(grassPosX, yPos, grassPosZ);
+
+	float4x4 grassTransformMatrix = float4x4
+	(
+		_Scale.x,	0,		0,	    grassPos.x,
+		0,			yScale,	0,		grassPos.y,
+		0,		0,		_Scale.z,	grassPos.z,
+		0,		0,		0,		1
+	);
+    float4x4 rotation_matrix = RotationMatrixY(RandomRange(float2(grassPosX, grassPosZ), 0.0, TWO_PI));
+    grassTransformMatrix = mul(grassTransformMatrix, rotation_matrix);
+
+    _TransformMatrices[id.y + (id.x * _Resolution)] = grassTransformMatrix;
+}
