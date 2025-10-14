@@ -11,8 +11,8 @@ public class ProceduralMesh : MonoBehaviour
     [SerializeField] private float frequency;
 
     [Header("Mesh Params")]
-    [SerializeField] int width;
-    [SerializeField] int height;
+    [SerializeField] public int width;
+    [SerializeField] public int height;
     [SerializeField] int resolution;
 
     [Header("Material Params")]
@@ -23,22 +23,33 @@ public class ProceduralMesh : MonoBehaviour
     [HideInInspector] public Texture2D noiseTex;
     private Color[] pixels;
 
+    void Start()
+    {
+
+    }
+
     void OnEnable()
+    {
+        Init();
+    }
+
+    public void Init()
     {
         noiseTex = new Texture2D(pixSize, pixSize);
         pixels = new Color[noiseTex.width * noiseTex.height];
 
         CalcNoise();
 
-        groundMaterial = GetComponent<MeshRenderer>().sharedMaterial;
-        groundMaterial.SetTexture("_NoiseTex", noiseTex);
-        groundMaterial.SetColor("_Tint", highColour);
-        groundMaterial.SetColor("_LowTint", lowColour);
+        MaterialPropertyBlock matProp = new MaterialPropertyBlock();
+        matProp.SetTexture("_NoiseTex", noiseTex);
+        matProp.SetColor("_Tint", highColour);
+        matProp.SetColor("_LowTint", lowColour);
+        GetComponent<Renderer>().SetPropertyBlock(matProp);
 
         CreateMesh();
     }
 
-    void CalcNoise()
+    public void CalcNoise()
     {
         for (float y = 0.0f; y < noiseTex.height; y++)
         {
@@ -54,6 +65,11 @@ public class ProceduralMesh : MonoBehaviour
 
         noiseTex.SetPixels(pixels);
         noiseTex.Apply();
+    }
+
+    public void SetOrigin(Vector2 new_origin)
+    {
+        noise_origin = new Vector2(new_origin.x, new_origin.y);
     }
 
     void CreateMesh()

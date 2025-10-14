@@ -5,6 +5,7 @@ Shader "Custom/UnlitGrass"
         _MainTex ("Texture", 2D) = "white" {}
         _NoiseTex ("Noise Texture", 2D) = "white" {}
         _WindTex ("Wind Texture", 2D) = "white" {}
+        _MowTex ("Mow Texture", 2D) = "black" {}
         _MainColour ("MainColour", Color) = (0, 0, 0, 0)
         _TipColour ("TipColour", Color) = (0, 0, 0, 0)
         _ColorBlendFactor ("Blend Factor", Range(0.0, 1.0)) = 0.5
@@ -57,12 +58,14 @@ Shader "Custom/UnlitGrass"
                 float4 vertex : SV_POSITION;
                 float3 normal : TEXCOORD1;
                 float3 worldpos : TEXCOORD2;
+                float2 worlduv : TEXCOORD3;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             sampler2D _MainTex;
             sampler2D _NoiseTex;
             sampler2D _WindTex;
+            sampler2D _MowTex;
             float4 _MainTex_ST;
 
             fixed4 _MainColour;
@@ -111,14 +114,15 @@ Shader "Custom/UnlitGrass"
                 float4 worldpos = mul(unity_ObjectToWorld, v.vertex);
 
                 float2 world_uv = float2((worldpos.x - _Min.x) / (_Max.x - _Min.x), (worldpos.z - _Min.y) / (_Max.y - _Min.y));
-                float2 wind_pos = world_uv - _Time.y * _WindFrequency;
+                float2 wind_pos = world_uv - sin(_Time.y * _WindFrequency);
                 float wind_bend = tex2Dlod(_WindTex, float4(wind_pos, 0, 0)).r;
 
-                worldpos.xz += wind_bend * pow(v.uv.y, 2.0) * _WindDirection * _WindAmplitude;
+                worldpos.xz += wind_bend * v.uv.y * _WindDirection * _WindAmplitude;
 
                 o.vertex = mul(UNITY_MATRIX_VP, worldpos);
                 o.worldpos = worldpos;
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
+                o.worlduv = world_uv;
                 o.normal = v.normal;
 
                 UNITY_TRANSFER_FOG(o,o.vertex);
@@ -135,7 +139,19 @@ Shader "Custom/UnlitGrass"
                 float3 viewDir = normalize(_WorldSpaceCameraPos - i.worldpos);
                 float3 halfVector = normalize(lightDir + viewDir);
 
-                float4 albedo = tex2D(_MainTex, i.uv) * lerp(_MainColour, _TipColour, clamp(i.uv.y - _ColorBlendFactor, 0.0, 1.0)) * clamp(i.uv.y - _AAFactor, 0.0, 1.0);
+                float2 new_uv = i.uv;
+                if (tex2D(_MowTex, i.worlduv).r == 1.0){
+                    if (i.uv.y > 0.2){
+                        discard;
+                    }
+                    else{
+                        new_uv.y *= (1.0 / 0.2);
+                    }
+                }
+
+                float4 blendedColor = lerp(_MainColour, _TipColour, clamp(i.uv.y - _ColorBlendFactor, 0.0, 1.0));
+                float4 AOfactor = clamp(new_uv.y - _AAFactor, 0.0, 1.0);
+                float4 albedo = tex2D(_MainTex, i.uv) * blendedColor * AOfactor;
                 float3 diffuse = albedo.rgb * DotClamped(lightDir, i.normal) * lightColor;
                 float3 specular = pow(DotClamped(halfVector, i.normal), _Smoothness * 100) * lightColor * 0.5;
 

@@ -1,0 +1,17 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+RWTexture2D<float4> _InputTex;
+RWTexture2D<float4> _ResultTex;
+
+int _TexWidth;
+int _TexHeight;
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    float4 inputSample = _InputTex.Load(id.xy);
+    if (inputSample.r == 1.0){
+        _ResultTex[id.xy] = inputSample;
+    }
+}

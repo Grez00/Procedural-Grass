@@ -27,6 +27,8 @@ public class ProceduralGrass : MonoBehaviour
     [SerializeField] private float frequency;
 
     [SerializeField] private ComputeShader computeShader;
+    [SerializeField] private ComputeShader mowUpdateShader;
+    [SerializeField] private RenderTexture mowTex;
     private ComputeBuffer transformMatrixBuffer;
 
     private Collider groundCollider;
@@ -44,6 +46,7 @@ public class ProceduralGrass : MonoBehaviour
     private Texture noiseTex;
     private Texture sizeTex;
     private Texture windTex;
+    private RenderTexture accumMowTex;
 
     void Start()
     {
@@ -51,8 +54,6 @@ public class ProceduralGrass : MonoBehaviour
         grassMesh = grass.GetComponent<MeshFilter>().sharedMesh;
         grassHeight = grassMesh.bounds.size.y;
         grassCenter = grassMesh.bounds.center.y;
-        Debug.Log(grassHeight);
-        Debug.Log(grassCenter);
 
         noiseTex = GetComponent<ProceduralMesh>().noiseTex;
         sizeTex = CalcNoise(pixSize, scale, amplitude, frequency, noise_origin);
@@ -65,9 +66,13 @@ public class ProceduralGrass : MonoBehaviour
 
     void OnEnable()
     {
-        if (grassMaterial == null)
+        if (grassMaterial == null) grassMaterial = grass.GetComponent<MeshRenderer>().sharedMaterial;
+
+        if (mowTex != null)
         {
-            grassMaterial = grass.GetComponent<MeshRenderer>().sharedMaterial;
+            accumMowTex = new RenderTexture(mowTex.width, mowTex.height, 0, RenderTextureFormat.ARGBFloat);
+            accumMowTex.enableRandomWrite = true;
+            mowTex.enableRandomWrite = true;
         }
 
         noiseTex = GetComponent<ProceduralMesh>().noiseTex;
@@ -89,8 +94,62 @@ public class ProceduralGrass : MonoBehaviour
 
     void Update()
     {
+        if (mowTex != null)
+        {
+            UpdateMowTexGPU();
+            grassMaterial.SetTexture("_MowTex", accumMowTex);
+        }
         GPUInstantiate_ComputeShader();
     }
+
+    Texture2D RenderTextoTex2D(RenderTexture rendTex)
+    {
+        Texture2D resultTexture = new Texture2D(rendTex.width, rendTex.height);
+        RenderTexture prev = RenderTexture.active;
+        RenderTexture.active = rendTex;
+        resultTexture.ReadPixels(new Rect(0, 0, rendTex.width, rendTex.height), 0, 0);
+        resultTexture.Apply();
+        RenderTexture.active = prev;
+        return resultTexture;
+    }
+
+    Texture2D BlackTexture(int width, int height)
+    {
+        Texture2D newTex = new Texture2D(width, height);
+        Color[] pixels = new Color[width * height];
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                pixels[y * width + x] = Color.black;
+            }
+        }
+        newTex.SetPixels(pixels);
+        newTex.Apply();
+        return newTex;
+    }
+
+    /*
+    void UpdateMowTex()
+    {
+        Color[] pixels = accumMowTex.GetPixels();
+        Texture2D rendTex = RenderTextoTex2D(mowTex);
+
+        for (int y = 0; y < rendTex.height; y++)
+        {
+            for (int x = 0; x < rendTex.width; x++)
+            {
+                if (rendTex.GetPixel(x, y).r == 1.0f)
+                {
+                    pixels[y * rendTex.width + x] = Color.white;
+                }
+            }
+        }
+        accumMowTex.SetPixels(pixels);
+        accumMowTex.Apply();
+    }
+    */
 
     Texture2D CalcNoise(int pixSize, float scale, float amplitude, float frequency, Vector2 origin)
     {
@@ -150,6 +209,22 @@ public class ProceduralGrass : MonoBehaviour
             }
         }
         return result;
+    }
+
+    void UpdateMowTexGPU()
+    {
+        mowUpdateShader.SetTexture(0, "_InputTex", mowTex);
+        mowUpdateShader.SetTexture(0, "_ResultTex", accumMowTex);
+
+        mowUpdateShader.SetInt("_TexWith", mowTex.width);
+        mowUpdateShader.SetInt("_TexHeight", mowTex.height);
+
+        uint threadGroupSizeX;
+        uint threadGroupSizeY;
+        mowUpdateShader.GetKernelThreadGroupSizes(0, out threadGroupSizeX, out threadGroupSizeY, out _);
+        int threadGroupsX = Mathf.CeilToInt(mowTex.width / threadGroupSizeX);
+        int threadGroupsY = Mathf.CeilToInt(mowTex.height / threadGroupSizeY);
+        mowUpdateShader.Dispatch(0, threadGroupsX, threadGroupsY, 1);
     }
 
     void DispatchComputeShader()
