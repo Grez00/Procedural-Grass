@@ -260,7 +260,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!114 &504248709
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -273,7 +273,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7171638c7d946db4a8f7b1c80541e065, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  resolution: 128
+  resolution: 80
   minHeight: 0.2
   maxHeight: 1.2
   bendFactor: {x: 0, y: 2}
@@ -282,6 +282,9 @@ MonoBehaviour:
   mainColour: {r: 0, g: 0.85660374, b: 0.021430492, a: 0}
   tipColour: {r: 0.5281976, g: 0.82641506, b: 0, a: 0}
   grass: {fileID: 4698819967729486327, guid: 778ff2872906d7645b7fac71a7c48075, type: 3}
+  grassMesh_HighLOD: {fileID: -2432090755550338912, guid: 529c0c6bf7a2e934cb7d6e3ef54d3bb1, type: 3}
+  grassMesh_LowLOD: {fileID: -2432090755550338912, guid: e1a50c57ffcba8d44883ef57a4ad43a3, type: 3}
+  grassMaterial: {fileID: 2100000, guid: e35bb0e15c2672e48bc2942efd3cf554, type: 2}
   windAmplitude: 0.1
   windFrequency: 0.1
   windDirection: {x: 1, y: 1}
@@ -294,6 +297,10 @@ MonoBehaviour:
   computeShader: {fileID: 7200000, guid: 1977fd6285395c943a47cdee479eedb3, type: 3}
   mowUpdateShader: {fileID: 7200000, guid: 1878ddb011997bd45aa7c436f6e8162d, type: 3}
   mowTex: {fileID: 8400000, guid: 95765c745486f594f9b1dda1a34924ed, type: 2}
+  chunkDim: {x: 5, y: 5}
+  visualizeChunks: 0
+  mainCam: {fileID: 595935711}
+  lodThreshold: 50
 --- !u!64 &504248710
 MeshCollider:
   m_ObjectHideFlags: 0
@@ -401,8 +408,8 @@ MonoBehaviour:
   scale: 2
   amplitude: 2
   frequency: 8
-  width: 45
-  height: 45
+  width: 112
+  height: 112
   resolution: 128
   highColour: {r: 0.3056603, g: 0.15430096, b: 0.020185072, a: 1}
   lowColour: {r: 0.13962269, g: 0.07098583, b: 0.006059082, a: 1}
@@ -419,6 +426,7 @@ GameObject:
   - component: {fileID: 595935711}
   - component: {fileID: 595935710}
   - component: {fileID: 595935713}
+  - component: {fileID: 595935714}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: Untagged
@@ -465,8 +473,8 @@ Camera:
     y: 0
     width: 1
     height: 1
-  near clip plane: 0.3
-  far clip plane: 1000
+  near clip plane: 1
+  far clip plane: 10
   field of view: 60
   orthographic: 0
   orthographic size: 5
@@ -493,14 +501,27 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 595935709}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.7071068, y: 0, z: 0, w: 0.7071068}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 22.5, y: 49, z: 22.5}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 90, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &595935713
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 595935709}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: deea94a0b417b1644921a2e679820642, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  player: {fileID: 1694345342}
+--- !u!114 &595935714
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -509,10 +530,12 @@ MonoBehaviour:
   m_GameObject: {fileID: 595935709}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: deea94a0b417b1644921a2e679820642, type: 3}
+  m_Script: {fileID: 11500000, guid: b12a631e82f2a7a4680544446e934b7b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  player: {fileID: 1694345342}
+  drawAxes: 0
+  drawNormals: 1
+  drawFrustum: 1
 --- !u!1 &832575517
 GameObject:
   m_ObjectHideFlags: 0
@@ -640,7 +663,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &942435347
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -881,7 +904,7 @@ Camera:
   near clip plane: 0.3
   far clip plane: 1000
   field of view: 60
-  orthographic: 0
+  orthographic: 1
   orthographic size: 5
   m_Depth: 0
   m_CullingMask:

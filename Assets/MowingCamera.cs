@@ -6,7 +6,7 @@ public class MowingCamera : MonoBehaviour
     private Camera mowCam;
     private Bounds groundBounds;
 
-    void Start()
+    void OnEnable()
     {
         if (ground == null)
         {
@@ -15,9 +15,19 @@ public class MowingCamera : MonoBehaviour
         groundBounds = ground.GetComponent<Collider>().bounds;
 
         mowCam = GetComponent<Camera>();
-        Matrix4x4 viewMatrix = mowCam.worldToCameraMatrix;
 
-        transform.position = new Vector3(groundBounds.center.x, transform.position.y, groundBounds.center.z);
+        if (mowCam.orthographic)
+        {
+            mowCam.orthographicSize = groundBounds.extents.x;
+            transform.position = new Vector3(groundBounds.center.x, groundBounds.center.y + 5.0f, groundBounds.center.z);  
+        }
+        else
+        {
+            float distance = groundBounds.extents.x / Mathf.Tan((mowCam.fieldOfView / 2.0f) * Mathf.Deg2Rad);
+            transform.position = new Vector3(groundBounds.center.x, groundBounds.center.y + distance, groundBounds.center.z);  
+        }
+
+        Matrix4x4 viewMatrix = mowCam.worldToCameraMatrix;
 
         Vector4 min = new Vector4(groundBounds.min.x, groundBounds.min.y, groundBounds.min.z, 1.0f);
         Vector4 max = new Vector4(groundBounds.max.x, groundBounds.max.y, groundBounds.max.z, 1.0f);

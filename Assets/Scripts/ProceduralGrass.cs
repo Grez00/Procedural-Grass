@@ -12,6 +12,9 @@ public class ProceduralGrass : MonoBehaviour
     [SerializeField] private Color mainColour;
     [SerializeField] private Color tipColour;
     [SerializeField] private GameObject grass;
+    [SerializeField] private Mesh grassMesh_HighLOD;
+    [SerializeField] private Mesh grassMesh_LowLOD;
+    [SerializeField] private Material grassMaterial;
 
     [Header("Wind Params")]
     [SerializeField] private float windAmplitude;
@@ -29,7 +32,17 @@ public class ProceduralGrass : MonoBehaviour
     [SerializeField] private ComputeShader computeShader;
     [SerializeField] private ComputeShader mowUpdateShader;
     [SerializeField] private RenderTexture mowTex;
+
+    [Header("Chunk Params")]
+    [SerializeField] private Vector2Int chunkDim;
+    [SerializeField] private bool visualizeChunks;
+
+    [Header("LOD Params")]
+    [SerializeField] private Camera mainCam;
+    [SerializeField] private float lodThreshold;
+
     private ComputeBuffer transformMatrixBuffer;
+    private ComputeBuffer[] matrixBuffers;
 
     private Collider groundCollider;
     private Mesh groundMesh;
@@ -37,11 +50,15 @@ public class ProceduralGrass : MonoBehaviour
     private Vector2 min;
     private Vector2 max;
     private float size;
+    private Vector2 chunkSize;
+    private int numChunks;
+    private AABB chunkAABB;
+
     private MaterialPropertyBlock properties;
-    private Material grassMaterial;
     private Mesh grassMesh;
     private float grassHeight;
     private float grassCenter;
+
     private Matrix4x4[] matrices;
     private Texture noiseTex;
     private Texture sizeTex;
@@ -50,10 +67,15 @@ public class ProceduralGrass : MonoBehaviour
 
     void Start()
     {
-        grassMaterial = grass.GetComponent<MeshRenderer>().sharedMaterial;
-        grassMesh = grass.GetComponent<MeshFilter>().sharedMesh;
-        grassHeight = grassMesh.bounds.size.y;
-        grassCenter = grassMesh.bounds.center.y;
+        if (mainCam == null)
+        {
+            mainCam = Camera.main;
+        }
+
+        if (grassMaterial == null) grassMaterial = grass.GetComponent<MeshRenderer>().sharedMaterial;
+        if (grassMesh_HighLOD == null) grassMesh_HighLOD = grass.GetComponent<MeshFilter>().sharedMesh;
+        if (grassMesh_LowLOD == null) grassMesh_LowLOD = grass.GetComponent<MeshFilter>().sharedMesh;
+        SetGrassMesh(grassMesh_HighLOD);
 
         noiseTex = GetComponent<ProceduralMesh>().noiseTex;
         sizeTex = CalcNoise(pixSize, scale, amplitude, frequency, noise_origin);
@@ -61,7 +83,63 @@ public class ProceduralGrass : MonoBehaviour
         grassMaterial.SetTexture("_NoiseTex", noiseTex);
         grassMaterial.SetTexture("_WindTex", windTex);
 
-        DispatchComputeShader();
+        groundCollider = GetComponent<Collider>();
+        min = new Vector2(groundCollider.bounds.min.x, groundCollider.bounds.min.z);
+        max = new Vector2(groundCollider.bounds.max.x, groundCollider.bounds.max.z);
+
+        numChunks = chunkDim.x * chunkDim.y;
+        chunkSize = new Vector2(groundCollider.bounds.size.x / (float)chunkDim.x, groundCollider.bounds.size.z / (float)chunkDim.y);
+
+        Vector3 center = Vector3.zero;
+        Vector3 extents = new Vector3(chunkSize.x/2.0f, (grassHeight + Mathf.Sqrt(3))/2.0f, chunkSize.y/2.0f);
+        chunkAABB = new AABB(center, extents);
+
+        matrixBuffers = new ComputeBuffer[numChunks];
+        int bufferSize = (resolution + 1) * (resolution + 1);
+        for (int x = 0; x < chunkDim.x; x++)
+        {
+            for (int y = 0; y < chunkDim.y; y++)
+            {
+                int currentIndex = x * chunkDim.y + y;
+                matrixBuffers[currentIndex] = new ComputeBuffer(bufferSize, sizeof(float) * 16, ComputeBufferType.Structured);
+                Vector2 localMin = new Vector2(min.x + chunkSize.x * x, min.y + chunkSize.y * y);
+                Vector2 localMax = localMin + chunkSize;
+                DispatchComputeShader(localMin, localMax, matrixBuffers[currentIndex], bufferSize);
+            }
+        }
+
+        transformMatrixBuffer = new ComputeBuffer(bufferSize, sizeof(float) * 16, ComputeBufferType.Structured);
+        DispatchComputeShader(min, max, transformMatrixBuffer, bufferSize);
+    }
+
+    void OnDrawGizmos()
+    {
+        Vector2 chunkPos = WorldToChunk(mainCam.transform.position);
+        Vector3 closestChunk = ChunkToWorld(chunkPos);
+
+        Gizmos.DrawLine(mainCam.transform.position, closestChunk);
+
+        if (chunkAABB != null)
+        {
+            for (int x = 0; x < chunkDim.x; x++)
+            {
+                for (int y = 0; y < chunkDim.y; y++)
+                {
+                    chunkAABB.SetCenter(ChunkToWorld(new Vector2(x, y)) + new Vector3(0.0f, chunkAABB.GetExtents().y, 0.0f));
+
+                    if (chunkAABB.IsColliding(mainCam.transform.position))
+                    {
+                        Gizmos.color = Color.red;
+                    }
+                    else
+                    {
+                        Gizmos.color = Color.blue;
+                    }
+
+                    chunkAABB.DrawAABB();
+                }
+            }
+        }
     }
 
     void OnEnable()
@@ -99,7 +177,15 @@ public class ProceduralGrass : MonoBehaviour
             UpdateMowTexGPU();
             grassMaterial.SetTexture("_MowTex", accumMowTex);
         }
-        GPUInstantiate_ComputeShader();
+        GPUInstantiate_Chunked();
+    }
+
+    private void SetGrassMesh(Mesh newGrassMesh)
+    {
+        grassMesh = newGrassMesh;
+
+        grassHeight = grassMesh.bounds.size.y;
+        grassCenter = grassMesh.bounds.center.y;
     }
 
     Texture2D RenderTextoTex2D(RenderTexture rendTex)
@@ -129,27 +215,6 @@ public class ProceduralGrass : MonoBehaviour
         newTex.Apply();
         return newTex;
     }
-
-    /*
-    void UpdateMowTex()
-    {
-        Color[] pixels = accumMowTex.GetPixels();
-        Texture2D rendTex = RenderTextoTex2D(mowTex);
-
-        for (int y = 0; y < rendTex.height; y++)
-        {
-            for (int x = 0; x < rendTex.width; x++)
-            {
-                if (rendTex.GetPixel(x, y).r == 1.0f)
-                {
-                    pixels[y * rendTex.width + x] = Color.white;
-                }
-            }
-        }
-        accumMowTex.SetPixels(pixels);
-        accumMowTex.Apply();
-    }
-    */
 
     Texture2D CalcNoise(int pixSize, float scale, float amplitude, float frequency, Vector2 origin)
     {
@@ -227,15 +292,13 @@ public class ProceduralGrass : MonoBehaviour
         mowUpdateShader.Dispatch(0, threadGroupsX, threadGroupsY, 1);
     }
 
-    void DispatchComputeShader()
+    void DispatchComputeShader(Vector2 min, Vector2 max, ComputeBuffer transformMatrixBuffer, int bufferSize)
     {
-        groundCollider = GetComponent<Collider>();
-
-        min = new Vector2(groundCollider.bounds.min.x, groundCollider.bounds.min.z);
-        max = new Vector2(groundCollider.bounds.max.x, groundCollider.bounds.max.z);
-
-        int bufferSize = (resolution + 1) * (resolution + 1);
-        transformMatrixBuffer = new ComputeBuffer(bufferSize, sizeof(float) * 16, ComputeBufferType.Structured);
+        if (transformMatrixBuffer.count != bufferSize)
+        {
+            transformMatrixBuffer = new ComputeBuffer(bufferSize, sizeof(float) * 16, ComputeBufferType.Structured);
+        }
+        
         computeShader.SetBuffer(0, "_TransformMatrices", transformMatrixBuffer);
 
         computeShader.SetTexture(0, "_NoiseTex", noiseTex);
@@ -282,7 +345,7 @@ public class ProceduralGrass : MonoBehaviour
     {
         Matrix4x4[] grassMatrices = new Matrix4x4[(resolution + 1) * (resolution + 1)];
         transformMatrixBuffer.GetData(grassMatrices);
-        
+
         if (grassMesh != null && grassMaterial != null)
         {
             Graphics.DrawMeshInstanced(
@@ -296,6 +359,67 @@ public class ProceduralGrass : MonoBehaviour
         {
             grassMaterial = grass.GetComponent<MeshRenderer>().sharedMaterial;
             grassMesh = grass.GetComponent<MeshFilter>().sharedMesh;
-        } 
+        }
+    }
+
+    void GPUInstantiate_Chunked()
+    {
+        if (grassMesh == null && grassMaterial == null)
+        {
+            grassMaterial = grass.GetComponent<MeshRenderer>().sharedMaterial;
+            grassMesh = grass.GetComponent<MeshFilter>().sharedMesh;
+        }
+
+        Matrix4x4[] grassMatrices;
+        for (int x = 0; x < chunkDim.x; x++)
+        {
+            for (int y = 0; y < chunkDim.y; y++)
+            {
+                Vector2 chunkPos = new Vector2(x, y);
+                float distanceToCamera = (mainCam.transform.position - ChunkToWorld(chunkPos)).magnitude;
+
+                if (distanceToCamera > lodThreshold)
+                {
+                    SetGrassMesh(grassMesh_LowLOD);
+                }
+                else
+                {
+                    SetGrassMesh(grassMesh_HighLOD);
+                }
+
+                
+
+                grassMatrices = new Matrix4x4[(resolution + 1) * (resolution + 1)];
+                matrixBuffers[x * chunkDim.y + y].GetData(grassMatrices);
+
+                Graphics.DrawMeshInstanced(
+                    grassMesh,
+                    0,
+                    grassMaterial,
+                    grassMatrices
+                );
+            }
+        }
+    }
+    
+    private Vector2 WorldToChunk(Vector3 worldPos)
+    {
+        Vector2 chunkPos = new Vector2(worldPos.x, worldPos.z);
+        chunkPos -= new Vector2(transform.position.x, transform.position.z);
+
+        if (chunkPos.x < 0.0f) chunkPos.x -= chunkSize.x;
+        if (chunkPos.y < 0.0f) chunkPos.y -= chunkSize.y;
+
+        chunkPos = new Vector2((int)(chunkPos.x / chunkSize.x), (int)(chunkPos.y / chunkSize.y));
+
+        return chunkPos;
+    }
+
+    private Vector3 ChunkToWorld(Vector2 chunkPos)
+    {
+        Vector3 worldPos = new Vector3(chunkPos.x * chunkSize.x, transform.position.y, chunkPos.y * chunkSize.y);
+        worldPos.x += transform.position.x + chunkSize.x / 2.0f;
+        worldPos.z += transform.position.z + chunkSize.y / 2.0f;
+        return worldPos;
     }
 }
