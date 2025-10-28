@@ -53,6 +53,7 @@ public class ProceduralGrass : MonoBehaviour
     private Vector2 chunkSize;
     private int numChunks;
     private AABB chunkAABB;
+    private Frustum mainCamFrustum;
 
     private MaterialPropertyBlock properties;
     private Mesh grassMesh;
@@ -70,6 +71,7 @@ public class ProceduralGrass : MonoBehaviour
         if (mainCam == null)
         {
             mainCam = Camera.main;
+            mainCamFrustum = new Frustum(mainCam);
         }
 
         if (grassMaterial == null) grassMaterial = grass.GetComponent<MeshRenderer>().sharedMaterial;
@@ -119,6 +121,17 @@ public class ProceduralGrass : MonoBehaviour
 
         Gizmos.DrawLine(mainCam.transform.position, closestChunk);
 
+        AABB TestAABB = new AABB(new Vector3(0.0f, 0.0f, 0.0f), new Vector3(0.5f, 0.5f, 0.5f));
+        if (mainCamFrustum != null && mainCamFrustum.AABBTest(TestAABB))
+        {
+            Gizmos.color = Color.red;
+        }
+        else
+        {
+            Gizmos.color = Color.green;
+        }
+        TestAABB.Draw();
+
         if (chunkAABB != null)
         {
             for (int x = 0; x < chunkDim.x; x++)
@@ -127,7 +140,7 @@ public class ProceduralGrass : MonoBehaviour
                 {
                     chunkAABB.SetCenter(ChunkToWorld(new Vector2(x, y)) + new Vector3(0.0f, chunkAABB.GetExtents().y, 0.0f));
 
-                    if (chunkAABB.IsColliding(mainCam.transform.position))
+                    if (mainCamFrustum != null && mainCamFrustum.AABBTest(chunkAABB))
                     {
                         Gizmos.color = Color.red;
                     }
@@ -136,7 +149,7 @@ public class ProceduralGrass : MonoBehaviour
                         Gizmos.color = Color.blue;
                     }
 
-                    chunkAABB.DrawAABB();
+                    chunkAABB.Draw();
                 }
             }
         }
@@ -177,6 +190,9 @@ public class ProceduralGrass : MonoBehaviour
             UpdateMowTexGPU();
             grassMaterial.SetTexture("_MowTex", accumMowTex);
         }
+
+        mainCamFrustum = new Frustum(mainCam);
+
         GPUInstantiate_Chunked();
     }
 
@@ -387,7 +403,8 @@ public class ProceduralGrass : MonoBehaviour
                     SetGrassMesh(grassMesh_HighLOD);
                 }
 
-                
+                chunkAABB.SetCenter(ChunkToWorld(new Vector2(x, y)) + new Vector3(0.0f, chunkAABB.GetExtents().y, 0.0f));
+                if (!mainCamFrustum.AABBTest(chunkAABB)) continue;
 
                 grassMatrices = new Matrix4x4[(resolution + 1) * (resolution + 1)];
                 matrixBuffers[x * chunkDim.y + y].GetData(grassMatrices);

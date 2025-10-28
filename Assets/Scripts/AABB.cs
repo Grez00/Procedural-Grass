@@ -2,8 +2,8 @@ using UnityEngine;
 
 public class AABB
 {
-    private Vector3 center;
-    private Vector3 extents;
+    public Vector3 center;
+    public Vector3 extents;
 
     public AABB(Vector3 pCenter, Vector3 pExtents)
     {
@@ -35,7 +35,7 @@ public class AABB
         return true;
     }
 
-    public void DrawAABB()
+    public void Draw()
     {
         Gizmos.DrawWireCube(center, extents * 2.0f);
     }
