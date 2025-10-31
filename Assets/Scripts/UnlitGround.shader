@@ -54,7 +54,7 @@ Shader "Custom/UnlitGround"
 
                 float4 p = v.vertex;
                 float4 noise = tex2Dlod(_NoiseTex, float4(v.uv, 0.0, 0.0));
-                p.y += length(noise) * _Amplitude;
+                p.y += noise.r * _Amplitude;
 
                 o.objPos = p;
                 o.vertex = UnityObjectToClipPos(p);

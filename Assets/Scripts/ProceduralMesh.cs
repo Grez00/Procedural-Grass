@@ -1,8 +1,10 @@
 using UnityEngine;
 using System.Collections.Generic;
 
+// Purpose of this script is to create the terrain which the grass will sit on top of
 public class ProceduralMesh : MonoBehaviour
 {
+    // These parameters control the heightmap of the terrain
     [Header("Noise Params")]
     [SerializeField] private int pixSize;
     [SerializeField] private Vector2 noise_origin;
@@ -11,29 +13,27 @@ public class ProceduralMesh : MonoBehaviour
     [SerializeField] private float frequency;
 
     [Header("Mesh Params")]
+    // World units width and height of terrain
     [SerializeField] public int width;
     [SerializeField] public int height;
-    [SerializeField] int resolution;
+    [SerializeField] int resolution; // Density of vertices in plane
+    [SerializeField] public float meshAmplitude;
 
+    // Terrain colour changes with height
     [Header("Material Params")]
     [SerializeField] Color highColour = Color.white;
     [SerializeField] Color lowColour = Color.white;
+
+    // If you want the most simple terrain possible
+    // (No height offset, 2 tris)
+    [Header("Simplify Mesh")]
+    [SerializeField] private bool simpleMesh;
 
     private Material groundMaterial;
     [HideInInspector] public Texture2D noiseTex;
     private Color[] pixels;
 
-    void Start()
-    {
-
-    }
-
     void OnEnable()
-    {
-        Init();
-    }
-
-    public void Init()
     {
         noiseTex = new Texture2D(pixSize, pixSize);
         pixels = new Color[noiseTex.width * noiseTex.height];
@@ -44,6 +44,7 @@ public class ProceduralMesh : MonoBehaviour
         matProp.SetTexture("_NoiseTex", noiseTex);
         matProp.SetColor("_Tint", highColour);
         matProp.SetColor("_LowTint", lowColour);
+        matProp.SetFloat("_Amplitude", meshAmplitude);
         GetComponent<Renderer>().SetPropertyBlock(matProp);
 
         CreateMesh();
@@ -55,11 +56,18 @@ public class ProceduralMesh : MonoBehaviour
         {
             for (float x = 0.0f; x < noiseTex.width; x++)
             {
-                float xCoord = (noise_origin.x + x / noiseTex.width) / scale * frequency;
-                float yCoord = (noise_origin.y + y / noiseTex.height) / scale * frequency;
-                float sample = Mathf.PerlinNoise(xCoord, yCoord);
-                sample *= amplitude;
-                pixels[(int)y * noiseTex.width + (int)x] = new Color(sample, sample, sample);
+                if (simpleMesh)
+                {
+                    pixels[(int)y * noiseTex.width + (int)x] = new Color(0, 0, 0);
+                }
+                else
+                {
+                    float xCoord = (noise_origin.x + x / noiseTex.width) / scale * frequency;
+                    float yCoord = (noise_origin.y + y / noiseTex.height) / scale * frequency;
+                    float sample = Mathf.PerlinNoise(xCoord, yCoord);
+                    sample *= amplitude;
+                    pixels[(int)y * noiseTex.width + (int)x] = new Color(sample, sample, sample);
+                }
             }
         }
 
@@ -74,6 +82,8 @@ public class ProceduralMesh : MonoBehaviour
 
     void CreateMesh()
     {
+        if (simpleMesh) resolution = 1;
+
         var mesh = new Mesh
         {
             name = "Procedural Mesh"
@@ -126,6 +136,6 @@ public class ProceduralMesh : MonoBehaviour
         mesh.triangles = indices.ToArray();
 
         GetComponent<MeshFilter>().mesh = mesh;
-        GetComponent<MeshCollider>().sharedMesh = mesh;  
+        GetComponent<MeshCollider>().sharedMesh = mesh;
     }
 }

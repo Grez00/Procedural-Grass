@@ -70,12 +70,13 @@ Shader "Custom/UnlitGrass"
 
             fixed4 _MainColour;
             fixed4 _TipColour;
-            float _ColorBlendFactor;
+            float _ColorBlendFactor; // Determines which colour is more dominant
             float _Smoothness;
 
             float2 _BendFactor;
             float _AAFactor;
-
+            
+            // Worldspace min and max of terrain
             float2 _Min;
             float2 _Max;
 
@@ -89,12 +90,20 @@ Shader "Custom/UnlitGrass"
             UNITY_INSTANCING_BUFFER_START(Props)
             UNITY_INSTANCING_BUFFER_END(Props)
 
+            // Random uint
             uint Hash(uint3 p) {
                 return 19u * p.x + 47u * p.y + 101u * p.z + 131u;
             }
+
+            // Random float between 0 and 1
             float ClampedHash(uint3 p) {
                 uint v = 19u * p.x + 47u * p.y + 101u * p.z + 131u;
                 return frac((float)v * 2132.1896231);
+            }
+
+            // Random float between 0 and 1 from float
+            float hash11(float x) {
+                return frac(sin(x * 6857.92) * 98.3);
             }
 
             v2f vert (appdata v)
@@ -108,16 +117,19 @@ Shader "Custom/UnlitGrass"
                 uint id = UNITY_GET_INSTANCE_ID(v);
                 #endif
 
+                // Every grass blade bends by the same amount
                 v.vertex.x += _BendFactor.x * pow(v.uv.y, 2.0);
                 v.vertex.z += _BendFactor.y * pow(v.uv.y, 2.0);
                 
                 float4 worldpos = mul(unity_ObjectToWorld, v.vertex);
 
                 float2 world_uv = float2((worldpos.x - _Min.x) / (_Max.x - _Min.x), (worldpos.z - _Min.y) / (_Max.y - _Min.y));
-                float2 wind_pos = world_uv - sin(_Time.y * _WindFrequency);
-                float wind_bend = tex2Dlod(_WindTex, float4(wind_pos, 0, 0)).r;
+                float2 wind_pos = world_uv - (_Time.x * _WindFrequency);
+                float wind_bend = tex2Dlod(_WindTex, float4(wind_pos.x, wind_pos.y, 0, 0)).r;
+                wind_bend = (wind_bend * 2.0) - 1.0;
+                wind_bend += sin(_Time.y * _WindFrequency) * _WindAmplitude;
 
-                worldpos.xz += wind_bend * v.uv.y * _WindDirection * _WindAmplitude;
+                worldpos.xz += wind_bend * v.uv.y * _WindDirection;
 
                 o.vertex = mul(UNITY_MATRIX_VP, worldpos);
                 o.worldpos = worldpos;

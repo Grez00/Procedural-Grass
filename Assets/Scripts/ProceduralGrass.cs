@@ -1,9 +1,10 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 public class ProceduralGrass : MonoBehaviour
 {
     [Header("Grass Params")]
-    [SerializeField] private int resolution;
+    [SerializeField] private int resolution; // number of grass blades per chunk is resolution squared
     [SerializeField] private float minHeight;
     [SerializeField] private float maxHeight;
     [SerializeField] private Vector2 bendFactor;
@@ -11,7 +12,7 @@ public class ProceduralGrass : MonoBehaviour
     [SerializeField][Range(0.0f, 1.0f)] private float smoothness;
     [SerializeField] private Color mainColour;
     [SerializeField] private Color tipColour;
-    [SerializeField] private GameObject grass;
+    [SerializeField] private GameObject grass; // Actual grass prefab is used to get scale/height 
     [SerializeField] private Mesh grassMesh_HighLOD;
     [SerializeField] private Mesh grassMesh_LowLOD;
     [SerializeField] private Material grassMaterial;
@@ -19,40 +20,43 @@ public class ProceduralGrass : MonoBehaviour
     [Header("Wind Params")]
     [SerializeField] private float windAmplitude;
     [SerializeField] private float windFrequency;
+    [SerializeField] private float windScale;
+    [SerializeField] private Vector2 wind_origin;
     [SerializeField] private Vector2 windDirection;
 
-    [Header("Noise Params")]
+    // Used for calculating size tex
+    [Header("Size Params")]
     [SerializeField] private int pixSize;
     [SerializeField] private Vector2 noise_origin;
-    [SerializeField] private Vector2 wind_origin;
     [SerializeField] private float scale;
     [SerializeField] private float amplitude;
     [SerializeField] private float frequency;
 
-    [SerializeField] private ComputeShader computeShader;
-    [SerializeField] private ComputeShader mowUpdateShader;
-    [SerializeField] private RenderTexture mowTex;
+    [Header("Shaders/Textures")]
+    [SerializeField] private ComputeShader computeShader; // Calculates grass positions
+    [SerializeField] private ComputeShader mowUpdateShader; // Adds mowTex to accumMowTex
+    [SerializeField] private RenderTexture mowTex; // Texture which stores current position of mower
 
     [Header("Chunk Params")]
-    [SerializeField] private Vector2Int chunkDim;
+    [SerializeField] private Vector2Int chunkDim; // Number of chunks per axis
     [SerializeField] private bool visualizeChunks;
 
     [Header("LOD Params")]
     [SerializeField] private Camera mainCam;
     [SerializeField] private float lodThreshold;
+    [SerializeField] private bool frustumCulling;
 
-    private ComputeBuffer transformMatrixBuffer;
-    private ComputeBuffer[] matrixBuffers;
+    private ComputeBuffer[] matrixBuffers; // stores buffers which contain grass positions of each chunk
 
     private Collider groundCollider;
     private Mesh groundMesh;
 
+    // world space min and max of terrain
     private Vector2 min;
     private Vector2 max;
-    private float size;
-    private Vector2 chunkSize;
-    private int numChunks;
-    private AABB chunkAABB;
+    private Vector2 chunkSize; // Local size of chunks
+    private int numChunks; // Total number of chunks
+    private AABB chunkAABB; // AABB enclosing chunks, used for frustum culling
     private Frustum mainCamFrustum;
 
     private MaterialPropertyBlock properties;
@@ -60,11 +64,13 @@ public class ProceduralGrass : MonoBehaviour
     private float grassHeight;
     private float grassCenter;
 
+    private float heightMapAmplitude;
+
     private Matrix4x4[] matrices;
-    private Texture noiseTex;
-    private Texture sizeTex;
+    private Texture noiseTex; // heightmap texture
+    private Texture sizeTex; // texture used to modulate scale of grass blades
     private Texture windTex;
-    private RenderTexture accumMowTex;
+    private RenderTexture accumMowTex; // Texture showing which grass blades have been mowed
 
     void Start()
     {
@@ -74,21 +80,28 @@ public class ProceduralGrass : MonoBehaviour
             mainCamFrustum = new Frustum(mainCam);
         }
 
+        // Get grass material and meshes
         if (grassMaterial == null) grassMaterial = grass.GetComponent<MeshRenderer>().sharedMaterial;
         if (grassMesh_HighLOD == null) grassMesh_HighLOD = grass.GetComponent<MeshFilter>().sharedMesh;
         if (grassMesh_LowLOD == null) grassMesh_LowLOD = grass.GetComponent<MeshFilter>().sharedMesh;
         SetGrassMesh(grassMesh_HighLOD);
 
+        // Calculate wind and size textures
         noiseTex = GetComponent<ProceduralMesh>().noiseTex;
         sizeTex = CalcNoise(pixSize, scale, amplitude, frequency, noise_origin);
         windTex = CalcNoise(pixSize, scale, amplitude, frequency, wind_origin);
         grassMaterial.SetTexture("_NoiseTex", noiseTex);
         grassMaterial.SetTexture("_WindTex", windTex);
 
+        // Get min and max of terrain
         groundCollider = GetComponent<Collider>();
         min = new Vector2(groundCollider.bounds.min.x, groundCollider.bounds.min.z);
         max = new Vector2(groundCollider.bounds.max.x, groundCollider.bounds.max.z);
 
+        // Amplitude of terrain heightmap
+        heightMapAmplitude = GetComponent<ProceduralMesh>().meshAmplitude;
+
+        // Calculate chunk values
         numChunks = chunkDim.x * chunkDim.y;
         chunkSize = new Vector2(groundCollider.bounds.size.x / (float)chunkDim.x, groundCollider.bounds.size.z / (float)chunkDim.y);
 
@@ -96,6 +109,9 @@ public class ProceduralGrass : MonoBehaviour
         Vector3 extents = new Vector3(chunkSize.x/2.0f, (grassHeight + Mathf.Sqrt(3))/2.0f, chunkSize.y/2.0f);
         chunkAABB = new AABB(center, extents);
 
+        // Calculate grass positions
+        // Each chunk has its own buffer which is calculated seperately
+        // This only happens once
         matrixBuffers = new ComputeBuffer[numChunks];
         int bufferSize = (resolution + 1) * (resolution + 1);
         for (int x = 0; x < chunkDim.x; x++)
@@ -107,50 +123,6 @@ public class ProceduralGrass : MonoBehaviour
                 Vector2 localMin = new Vector2(min.x + chunkSize.x * x, min.y + chunkSize.y * y);
                 Vector2 localMax = localMin + chunkSize;
                 DispatchComputeShader(localMin, localMax, matrixBuffers[currentIndex], bufferSize);
-            }
-        }
-
-        transformMatrixBuffer = new ComputeBuffer(bufferSize, sizeof(float) * 16, ComputeBufferType.Structured);
-        DispatchComputeShader(min, max, transformMatrixBuffer, bufferSize);
-    }
-
-    void OnDrawGizmos()
-    {
-        Vector2 chunkPos = WorldToChunk(mainCam.transform.position);
-        Vector3 closestChunk = ChunkToWorld(chunkPos);
-
-        Gizmos.DrawLine(mainCam.transform.position, closestChunk);
-
-        AABB TestAABB = new AABB(new Vector3(0.0f, 0.0f, 0.0f), new Vector3(0.5f, 0.5f, 0.5f));
-        if (mainCamFrustum != null && mainCamFrustum.AABBTest(TestAABB))
-        {
-            Gizmos.color = Color.red;
-        }
-        else
-        {
-            Gizmos.color = Color.green;
-        }
-        TestAABB.Draw();
-
-        if (chunkAABB != null)
-        {
-            for (int x = 0; x < chunkDim.x; x++)
-            {
-                for (int y = 0; y < chunkDim.y; y++)
-                {
-                    chunkAABB.SetCenter(ChunkToWorld(new Vector2(x, y)) + new Vector3(0.0f, chunkAABB.GetExtents().y, 0.0f));
-
-                    if (mainCamFrustum != null && mainCamFrustum.AABBTest(chunkAABB))
-                    {
-                        Gizmos.color = Color.red;
-                    }
-                    else
-                    {
-                        Gizmos.color = Color.blue;
-                    }
-
-                    chunkAABB.Draw();
-                }
             }
         }
     }
@@ -166,9 +138,15 @@ public class ProceduralGrass : MonoBehaviour
             mowTex.enableRandomWrite = true;
         }
 
+        // Get wind, size, and heightmap textures
         noiseTex = GetComponent<ProceduralMesh>().noiseTex;
         sizeTex = CalcNoise(pixSize, scale, amplitude, frequency, noise_origin);
-        windTex = CalcNoise(pixSize, scale, amplitude, frequency, noise_origin);
+        windTex = CalcNoise(pixSize, windScale, windAmplitude, windFrequency, wind_origin);
+
+        // Amplitude of terrain heightmap
+        heightMapAmplitude = GetComponent<ProceduralMesh>().meshAmplitude;
+
+        // Set all grass material parameters
         grassMaterial.SetTexture("_NoiseTex", noiseTex);
         grassMaterial.SetTexture("_WindTex", windTex);
         grassMaterial.SetColor("_MainColour", mainColour);
@@ -185,14 +163,17 @@ public class ProceduralGrass : MonoBehaviour
 
     void Update()
     {
+        // Update mow texture
         if (mowTex != null)
         {
             UpdateMowTexGPU();
             grassMaterial.SetTexture("_MowTex", accumMowTex);
         }
 
+        // Update camera frustum
         mainCamFrustum = new Frustum(mainCam);
 
+        // Draw grass
         GPUInstantiate_Chunked();
     }
 
@@ -204,6 +185,8 @@ public class ProceduralGrass : MonoBehaviour
         grassCenter = grassMesh.bounds.center.y;
     }
 
+    // Converts rendertexture to identical texture2D
+    // This is unused as textures are updated by compute shader
     Texture2D RenderTextoTex2D(RenderTexture rendTex)
     {
         Texture2D resultTexture = new Texture2D(rendTex.width, rendTex.height);
@@ -215,6 +198,7 @@ public class ProceduralGrass : MonoBehaviour
         return resultTexture;
     }
 
+    // Generates blank (all black) texture 2D
     Texture2D BlackTexture(int width, int height)
     {
         Texture2D newTex = new Texture2D(width, height);
@@ -232,6 +216,7 @@ public class ProceduralGrass : MonoBehaviour
         return newTex;
     }
 
+    // Calculates perlin noise texture
     Texture2D CalcNoise(int pixSize, float scale, float amplitude, float frequency, Vector2 origin)
     {
         Texture2D tex = new Texture2D(pixSize, pixSize);
@@ -254,6 +239,8 @@ public class ProceduralGrass : MonoBehaviour
         return tex;
     }
 
+    // CPU implementation of getting transformation matrices
+    // Unused as matrices are calculated using compute shader
     Matrix4x4[] GetTransformationMatrices()
     {
         groundCollider = GetComponent<Collider>();
@@ -265,7 +252,7 @@ public class ProceduralGrass : MonoBehaviour
             Debug.Log("Ground plane is not square");
         }
 
-        size = max.x - min.x;
+        float size = max.x - min.x;
 
         float rotation;
         float offsetX;
@@ -292,6 +279,7 @@ public class ProceduralGrass : MonoBehaviour
         return result;
     }
 
+    // Uses compute shader to add mowtext to accumMowTex
     void UpdateMowTexGPU()
     {
         mowUpdateShader.SetTexture(0, "_InputTex", mowTex);
@@ -308,20 +296,24 @@ public class ProceduralGrass : MonoBehaviour
         mowUpdateShader.Dispatch(0, threadGroupsX, threadGroupsY, 1);
     }
 
-    void DispatchComputeShader(Vector2 min, Vector2 max, ComputeBuffer transformMatrixBuffer, int bufferSize)
+    // Calculates a single buffer of grass positions
+    void DispatchComputeShader(Vector2 localMin, Vector2 localMax, ComputeBuffer transformMatrixBuffer, int bufferSize)
     {
         if (transformMatrixBuffer.count != bufferSize)
         {
             transformMatrixBuffer = new ComputeBuffer(bufferSize, sizeof(float) * 16, ComputeBufferType.Structured);
         }
         
+        // Set all compute shader parameters
         computeShader.SetBuffer(0, "_TransformMatrices", transformMatrixBuffer);
 
         computeShader.SetTexture(0, "_NoiseTex", noiseTex);
         computeShader.SetTexture(0, "_SizeTex", sizeTex);
 
-        computeShader.SetVector("_Min", new Vector4(min.x, min.y, 0, 0));
-        computeShader.SetVector("_Max", new Vector4(max.x, max.y, 0, 0));
+        computeShader.SetVector("_Min", new Vector4(localMin.x, localMin.y, 0, 0));
+        computeShader.SetVector("_Max", new Vector4(localMax.x, localMax.y, 0, 0));
+        computeShader.SetVector("_GlobalMin", new Vector4(min.x, min.y, 0, 0));
+        computeShader.SetVector("_GlobalMax", new Vector4(max.x, max.y, 0, 0));
         computeShader.SetFloat("_YPos", transform.position.y);
         computeShader.SetVector("_Scale", new Vector4(grass.transform.localScale.x, grass.transform.localScale.y, grass.transform.localScale.z, 0));
         computeShader.SetMatrix("_RotationMatrix", Matrix4x4.TRS(new Vector3(0, 0, 0), Quaternion.Euler(90, 45, 0), new Vector3(1, 1, 1)));
@@ -330,52 +322,15 @@ public class ProceduralGrass : MonoBehaviour
         computeShader.SetFloat("_MaxHeight", maxHeight);
         computeShader.SetFloat("_GrassHeight", grassHeight);
         computeShader.SetFloat("_GrassCenter", grassCenter);
+        computeShader.SetFloat("_HeightMapAmplitude", heightMapAmplitude);
 
+        // Dispatch the shader
         uint threadGroupSizeX;
         uint threadGroupSizeY;
         computeShader.GetKernelThreadGroupSizes(0, out threadGroupSizeX, out threadGroupSizeY, out _);
         int threadGroupsX = Mathf.CeilToInt((resolution + 1) / threadGroupSizeX);
         int threadGroupsY = Mathf.CeilToInt((resolution + 1) / threadGroupSizeY);
         computeShader.Dispatch(0, threadGroupsX, threadGroupsY, 1);
-    }
-
-    void GPUInstantiate()
-    {
-        if (grassMesh != null && grassMaterial != null)
-        {
-            Graphics.DrawMeshInstanced(
-                grassMesh,
-                0,
-                grassMaterial,
-                matrices
-            );
-        }
-        else
-        {
-            grassMaterial = grass.GetComponent<MeshRenderer>().sharedMaterial;
-            grassMesh = grass.GetComponent<MeshFilter>().sharedMesh;
-        }
-    }
-
-    void GPUInstantiate_ComputeShader()
-    {
-        Matrix4x4[] grassMatrices = new Matrix4x4[(resolution + 1) * (resolution + 1)];
-        transformMatrixBuffer.GetData(grassMatrices);
-
-        if (grassMesh != null && grassMaterial != null)
-        {
-            Graphics.DrawMeshInstanced(
-                grassMesh,
-                0,
-                grassMaterial,
-                grassMatrices
-            );
-        }
-        else
-        {
-            grassMaterial = grass.GetComponent<MeshRenderer>().sharedMaterial;
-            grassMesh = grass.GetComponent<MeshFilter>().sharedMesh;
-        }
     }
 
     void GPUInstantiate_Chunked()
@@ -387,6 +342,7 @@ public class ProceduralGrass : MonoBehaviour
         }
 
         Matrix4x4[] grassMatrices;
+        // One batch is rendered for each chunk
         for (int x = 0; x < chunkDim.x; x++)
         {
             for (int y = 0; y < chunkDim.y; y++)
@@ -394,6 +350,7 @@ public class ProceduralGrass : MonoBehaviour
                 Vector2 chunkPos = new Vector2(x, y);
                 float distanceToCamera = (mainCam.transform.position - ChunkToWorld(chunkPos)).magnitude;
 
+                // Should the camera be a far enough distance away, a lower poly mesh is used for a chunk's grass
                 if (distanceToCamera > lodThreshold)
                 {
                     SetGrassMesh(grassMesh_LowLOD);
@@ -404,7 +361,9 @@ public class ProceduralGrass : MonoBehaviour
                 }
 
                 chunkAABB.SetCenter(ChunkToWorld(new Vector2(x, y)) + new Vector3(0.0f, chunkAABB.GetExtents().y, 0.0f));
-                if (!mainCamFrustum.AABBTest(chunkAABB)) continue;
+
+                // Should the chunk fall outside of the camera's view, it will not be rendered
+                if (frustumCulling && !mainCamFrustum.AABBTest(chunkAABB)) continue;
 
                 grassMatrices = new Matrix4x4[(resolution + 1) * (resolution + 1)];
                 matrixBuffers[x * chunkDim.y + y].GetData(grassMatrices);

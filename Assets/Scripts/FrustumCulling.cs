@@ -24,34 +24,48 @@ public class Frustum
 
     public Frustum(Camera cam)
     {
+        // Inverse view matrix 
         Matrix4x4 viewMatrix = cam.cameraToWorldMatrix;
 
+        // Get axes of camera
         Vector3 up = Vector3.Normalize(viewMatrix * new Vector3(0, 1, 0));
         Vector3 forward = Vector3.Normalize(viewMatrix * new Vector3(0, 0, -1));
         Vector3 right = Vector3.Cross(up, forward);
 
+        // Near
         float nearHeight = Mathf.Tan(cam.fieldOfView / 2.0f * Mathf.Deg2Rad) * cam.nearClipPlane * 2.0f;
         float nearWidth = nearHeight * cam.aspect;
         Vector3 nearCenter = cam.transform.position + forward * cam.nearClipPlane;
         Vector3 nearNormal = forward;
 
+        // Far
         float farHeight = Mathf.Tan(cam.fieldOfView / 2.0f * Mathf.Deg2Rad) * cam.farClipPlane * 2.0f;
         float farWidth = farHeight * cam.aspect;
         Vector3 farCenter = cam.transform.position + forward * cam.farClipPlane;
         Vector3 farNormal = -forward;
 
+        // Calculating normals for the lrtb planes means finding two vectors on the plane and taking their cross product
+        // For the left and right, the up vector is on the plane
+        // For top and bottom, the right vector is on the plane
+        // The second vector is one that points out from the camera to the far plane
+
+        // Left
         Vector3 a = (nearCenter - (right * nearWidth / 2.0f)) - cam.transform.position;
         Vector3 leftNormal = Vector3.Normalize(Vector3.Cross(up, a));
 
+        // Right
         a = (nearCenter + (right * nearWidth / 2.0f)) - cam.transform.position;
         Vector3 rightNormal = -Vector3.Normalize(Vector3.Cross(up, a));
 
+        // Top
         a = (nearCenter + (up * nearHeight / 2.0f)) - cam.transform.position;
         Vector3 topNormal = Vector3.Normalize(Vector3.Cross(right, a));
 
+        // Bottom
         a = (nearCenter - (up * nearHeight / 2.0f)) - cam.transform.position;
         Vector3 bottomNormal = -Vector3.Normalize(Vector3.Cross(right, a));
 
+        // Create plane objects for frustum
         planes = new Plane[6];
         planes[0] = new Plane(cam.transform.position, bottomNormal);
         planes[1] = new Plane(cam.transform.position, topNormal);
@@ -61,6 +75,7 @@ public class Frustum
         planes[5] = new Plane(farCenter, farNormal);
     }
 
+    // Construct frustum from pre-made planes
     public Frustum(Plane[] pPlanes)
     {
         planes = new Plane[6];
@@ -102,10 +117,12 @@ public class Frustum
     }
 }
 
+// This is essentially just a class for debugging
+// Can use gizmos to draw axes, normals, and frustum of camera
 public class FrustumCulling : MonoBehaviour
 {
-    [SerializeField] SphereCollider collisionSphere;
-    [SerializeField] BoxCollider collisionBox;
+    [SerializeField] SphereCollider collisionSphere; // Object for testing collision with sphere
+    [SerializeField] BoxCollider collisionBox; // Object for testing collision with box
     [SerializeField] bool drawAxes;
     [SerializeField] bool drawNormals;
     [SerializeField] bool drawFrustum;
@@ -118,12 +135,14 @@ public class FrustumCulling : MonoBehaviour
         cam = GetComponent<Camera>();
     }
 
+    // Construct points of rectangle from center and width/height vectors
     Vector3[] GetRectangle(Vector3 center, Vector3 u, Vector3 v)
     {
         Vector3[] points = { center - u + v, center + u + v, center - u - v, center + u - v };
         return points;
     }
 
+    // Draw rectangle from center and width/height vectors
     void DrawRectangle(Vector3 center, Vector3 u, Vector3 v)
     {
         Vector3[] points = GetRectangle(center, u, v);
@@ -134,6 +153,7 @@ public class FrustumCulling : MonoBehaviour
         Gizmos.DrawLine(points[1], points[3]);
     }
 
+    // Draw rectangle from four points
     void DrawRectangle(Vector3 a, Vector3 b, Vector3 c, Vector3 d)
     {
         Gizmos.DrawLine(a, b);
@@ -142,6 +162,7 @@ public class FrustumCulling : MonoBehaviour
         Gizmos.DrawLine(b, d);
     }
 
+    // Draws frustum of camera given the center point of the near and far planes, as well as their width/height vectors
     void DrawFrustum(Vector3 near_center, Vector3 near_right, Vector3 near_up, Vector3 far_center, Vector3 far_right, Vector3 far_up)
     {
         Vector3[] near = GetRectangle(near_center, near_right, near_up);
@@ -163,34 +184,48 @@ public class FrustumCulling : MonoBehaviour
             cam = GetComponent<Camera>();
         }
 
+        // Inverse view matrix 
         Matrix4x4 viewMatrix = cam.cameraToWorldMatrix;
 
+        // Get axes of camera
         Vector3 up = Vector3.Normalize(viewMatrix * new Vector3(0, 1, 0));
         Vector3 forward = Vector3.Normalize(viewMatrix * new Vector3(0, 0, -1));
         Vector3 right = Vector3.Cross(up, forward);
 
+        // Near
         float nearHeight = Mathf.Tan(cam.fieldOfView / 2.0f * Mathf.Deg2Rad) * cam.nearClipPlane * 2.0f;
         float nearWidth = nearHeight * cam.aspect;
         Vector3 nearCenter = cam.transform.position + forward * cam.nearClipPlane;
         Vector3 nearNormal = forward;
 
+        // Far
         float farHeight = Mathf.Tan(cam.fieldOfView / 2.0f * Mathf.Deg2Rad) * cam.farClipPlane * 2.0f;
         float farWidth = farHeight * cam.aspect;
         Vector3 farCenter = cam.transform.position + forward * cam.farClipPlane;
         Vector3 farNormal = -forward;
 
+        // Calculating normals for the lrtb planes means finding two vectors on the plane and taking their cross product
+        // For the left and right, the up vector is on the plane
+        // For top and bottom, the right vector is on the plane
+        // The second vector is one that points out from the camera to the far plane
+
+        // Left
         Vector3 a = (nearCenter - (right * nearWidth / 2.0f)) - cam.transform.position;
         Vector3 leftNormal = Vector3.Normalize(Vector3.Cross(up, a));
 
+        // Right
         a = (nearCenter + (right * nearWidth / 2.0f)) - cam.transform.position;
         Vector3 rightNormal = -Vector3.Normalize(Vector3.Cross(up, a));
 
+        // Top
         a = (nearCenter + (up * nearHeight / 2.0f)) - cam.transform.position;
         Vector3 topNormal = Vector3.Normalize(Vector3.Cross(right, a));
 
+        // Bottom
         a = (nearCenter - (up * nearHeight / 2.0f)) - cam.transform.position;
         Vector3 bottomNormal = -Vector3.Normalize(Vector3.Cross(right, a));
 
+        // Create plane objects for frustum
         Plane[] planes = new Plane[6];
         planes[0] = new Plane(cam.transform.position, bottomNormal);
         planes[1] = new Plane(cam.transform.position, topNormal);
@@ -204,6 +239,8 @@ public class FrustumCulling : MonoBehaviour
         if (drawFrustum)
         {
             Gizmos.color = Color.magenta;
+
+            // Want to draw frustum in red if it intersects with a test object
             if (collisionSphere != null)
             {
                 if (camFrustum.SphereTest(collisionSphere.transform.position, collisionSphere.radius))
@@ -217,7 +254,7 @@ public class FrustumCulling : MonoBehaviour
             }
             if (collisionBox != null)
             {
-                AABB box = new AABB(collisionBox.transform.position, collisionBox.size/2.0f);
+                AABB box = new AABB(collisionBox.transform.position, collisionBox.size / 2.0f);
                 if (camFrustum.AABBTest(box))
                 {
                     Gizmos.color = Color.red;
@@ -227,7 +264,7 @@ public class FrustumCulling : MonoBehaviour
                     Gizmos.color = Color.green;
                 }
             }
-            
+
             DrawFrustum(
                 nearCenter,
                 right * nearWidth / 2.0f,

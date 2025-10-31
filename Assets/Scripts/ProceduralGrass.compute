@@ -14,6 +14,9 @@ float _MaxHeight;
 
 float2 _Min;
 float2 _Max;
+float2 _GlobalMin;
+float2 _GlobalMax;
+
 float _YPos;
 
 int _Resolution;
@@ -24,14 +27,19 @@ float4x4 _RotationMatrix;
 float _GrassHeight;
 float _GrassCenter;
 
+float _HeightMapAmplitude;
+
 #define TWO_PI 6.28318530718
 
+// Gives random float between given minimum and maximum values
 float RandomRange(float2 seed, float min, float max)
 {
 	float randnum = frac(sin(dot(seed, float2(12.9898, 78.233)))*43758.5453);
 	return lerp(min, max, randnum);
 }
 
+// Returns rotation matrix about the Y-Axis
+// Used for calculating random orientation of grass blades
 float4x4 RotationMatrixY(float angle)
 {
 	float s, c;
@@ -55,17 +63,22 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 	float2 Seed1 = float2(id.x, id.y);
 	float2 Seed2 = float2(id.y, id.x);
 
+	// Random offset is given to each grass position
 	float offsetX = RandomRange(Seed1, 0.0, 0.5 * stepSize);
 	float offsetZ = RandomRange(Seed2, 0.0, 0.5 * stepSize);
 
     float grassPosX = _Min.x + offsetX + id.x * stepSize;
     float grassPosZ = _Min.y + offsetZ + id.y * stepSize;
 
-    float2 uv = float2((grassPosX - _Min.x) / (_Max.x - _Min.x), (grassPosZ - _Min.y) / (_Max.y - _Min.y));
+	// World space uv of grass position relative to ground terrain
+    float2 uv = float2((grassPosX - _GlobalMin.x) / (_GlobalMax.x - _GlobalMin.x), (grassPosZ - _GlobalMin.y) / (_GlobalMax.y - _GlobalMin.y));
 
+	// Random scale
 	float yScale = _Scale.y * lerp(_MinHeight, _MaxHeight, _SizeTex.SampleLevel(sampler_SizeTex, uv, 0).r);
 	float grassHeight = _GrassHeight * yScale;
-    float yPos = _YPos += length(_NoiseTex.SampleLevel(sampler_NoiseTex, uv, 0)) + (grassHeight * _GrassCenter)*0.5;
+
+	// Calculate y position
+    float yPos = _YPos += (_NoiseTex.SampleLevel(sampler_NoiseTex, uv, 0).r * _HeightMapAmplitude) + (grassHeight * _GrassCenter)*0.5;
     float3 grassPos = float3(grassPosX, yPos, grassPosZ);
 
 	float4x4 grassTransformMatrix = float4x4
@@ -75,6 +88,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 		0,		0,		_Scale.z,	grassPos.z,
 		0,		0,		0,		1
 	);
+	// Random orientation
     float4x4 rotation_matrix = RotationMatrixY(RandomRange(float2(grassPosX, grassPosZ), 0.0, TWO_PI));
     grassTransformMatrix = mul(grassTransformMatrix, rotation_matrix);
 
