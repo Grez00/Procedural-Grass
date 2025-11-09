@@ -16,6 +16,8 @@ Shader "Custom/UnlitGrass"
         _Max ("Maximum", Vector) = (0.0, 0.0, 0.0, 0.0)
         _WindAmplitude ("Wind Amplitude", float) = 0.1
         _WindFrequency ("Wind Frequency", float) = 0.1
+        _WindSpeed ("Wind Speed", float) = 0.1
+        _WindNoiseFactor ("Wind Noise Factor", Range(0.0, 1.0)) = 0.5
         _WindDirection ("Wind Direction", Vector) = (1.0, 1.0, 0.0, 0.0)
 
     }
@@ -82,6 +84,8 @@ Shader "Custom/UnlitGrass"
 
             float _WindAmplitude;
             float _WindFrequency;
+            float _WindSpeed;
+            float _WindNoiseFactor;
             float2 _WindDirection;
 
             // Add instancing support for this shader. You need to check 'Enable Instancing' on materials that use the shader.
@@ -124,10 +128,14 @@ Shader "Custom/UnlitGrass"
                 float4 worldpos = mul(unity_ObjectToWorld, v.vertex);
 
                 float2 world_uv = float2((worldpos.x - _Min.x) / (_Max.x - _Min.x), (worldpos.z - _Min.y) / (_Max.y - _Min.y));
-                float2 wind_pos = world_uv - (_Time.x * _WindFrequency);
-                float wind_bend = tex2Dlod(_WindTex, float4(wind_pos.x, wind_pos.y, 0, 0)).r;
-                wind_bend = (wind_bend * 2.0) - 1.0;
-                wind_bend += sin(_Time.y * _WindFrequency) * _WindAmplitude;
+                float2 wind_pos = world_uv;
+                
+                float wind_noise = tex2Dlod(_WindTex, float4(wind_pos.x, wind_pos.y, 0, 0)).r;
+                wind_noise = (wind_noise * 2.0) - 1.0;
+
+                float wind_wave = sin((world_uv - _Time.y * _WindSpeed) * _WindFrequency) * _WindAmplitude;
+
+                float wind_bend = wind_wave + wind_noise;
 
                 worldpos.xz += wind_bend * v.uv.y * _WindDirection;
 
@@ -167,7 +175,7 @@ Shader "Custom/UnlitGrass"
                 float3 diffuse = albedo.rgb * DotClamped(lightDir, i.normal) * lightColor;
                 float3 specular = pow(DotClamped(halfVector, i.normal), _Smoothness * 100) * lightColor * 0.5;
 
-                float3 finalcolor = diffuse + specular;
+                float3 finalcolor = diffuse + specular
 
                 // apply fog
                 UNITY_APPLY_FOG(i.fogCoord, col);

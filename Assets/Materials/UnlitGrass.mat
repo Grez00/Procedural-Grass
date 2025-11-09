@@ -96,6 +96,8 @@ Material:
     - _UVSec: 0
     - _WindAmplitude: 1
     - _WindFrequency: 1
+    - _WindNoiseFactor: 0
+    - _WindSpeed: 1
     - _ZWrite: 1
     m_Colors:
     - _BendFactor: {r: 0, g: 2, b: 0, a: 0}

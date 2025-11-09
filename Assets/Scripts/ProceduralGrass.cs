@@ -8,7 +8,7 @@ public class ProceduralGrass : MonoBehaviour
     [SerializeField] private float minHeight;
     [SerializeField] private float maxHeight;
     [SerializeField] private Vector2 bendFactor;
-    [SerializeField] [Range(0.0f, 1.0f)] private float ambientOcclusion;
+    [SerializeField][Range(0.0f, 1.0f)] private float ambientOcclusion;
     [SerializeField][Range(0.0f, 1.0f)] private float smoothness;
     [SerializeField] private Color mainColour;
     [SerializeField] private Color tipColour;
@@ -20,9 +20,15 @@ public class ProceduralGrass : MonoBehaviour
     [Header("Wind Params")]
     [SerializeField] private float windAmplitude;
     [SerializeField] private float windFrequency;
-    [SerializeField] private float windScale;
-    [SerializeField] private Vector2 wind_origin;
+    [SerializeField] private float windSpeed;
     [SerializeField] private Vector2 windDirection;
+
+    [Header("Wind Noise Params")]
+    [SerializeField] private float windNoiseAmplitude;
+    [SerializeField] private float windNoiseFrequency;
+    [SerializeField] private float windNoiseScale;
+    [SerializeField][Range(0.0f, 1.0f)] private float windNoiseFactor;
+    [SerializeField] private Vector2 windNoiseOrigin;
 
     // Used for calculating size tex
     [Header("Size Params")]
@@ -74,6 +80,25 @@ public class ProceduralGrass : MonoBehaviour
 
     void Start()
     {
+        Init();
+    }
+
+    void OnEnable()
+    {
+        Init();
+    }
+    
+    void Init()
+    {
+        if (grassMaterial == null) grassMaterial = grass.GetComponent<MeshRenderer>().sharedMaterial;
+
+        if (mowTex != null)
+        {
+            accumMowTex = new RenderTexture(mowTex.width, mowTex.height, 0, RenderTextureFormat.ARGBFloat);
+            accumMowTex.enableRandomWrite = true;
+            mowTex.enableRandomWrite = true;
+        }
+
         if (mainCam == null)
         {
             mainCam = Camera.main;
@@ -86,12 +111,10 @@ public class ProceduralGrass : MonoBehaviour
         if (grassMesh_LowLOD == null) grassMesh_LowLOD = grass.GetComponent<MeshFilter>().sharedMesh;
         SetGrassMesh(grassMesh_HighLOD);
 
-        // Calculate wind and size textures
+        // Get wind, size, and heightmap textures
         noiseTex = GetComponent<ProceduralMesh>().noiseTex;
         sizeTex = CalcNoise(pixSize, scale, amplitude, frequency, noise_origin);
-        windTex = CalcNoise(pixSize, scale, amplitude, frequency, wind_origin);
-        grassMaterial.SetTexture("_NoiseTex", noiseTex);
-        grassMaterial.SetTexture("_WindTex", windTex);
+        windTex = CalcNoise(pixSize, windNoiseScale, windNoiseAmplitude, windNoiseFrequency, windNoiseOrigin);
 
         // Get min and max of terrain
         groundCollider = GetComponent<Collider>();
@@ -104,10 +127,25 @@ public class ProceduralGrass : MonoBehaviour
         // Calculate chunk values
         numChunks = chunkDim.x * chunkDim.y;
         chunkSize = new Vector2(groundCollider.bounds.size.x / (float)chunkDim.x, groundCollider.bounds.size.z / (float)chunkDim.y);
-
         Vector3 center = Vector3.zero;
-        Vector3 extents = new Vector3(chunkSize.x/2.0f, (grassHeight + Mathf.Sqrt(3))/2.0f, chunkSize.y/2.0f);
+        Vector3 extents = new Vector3(chunkSize.x / 2.0f, (grassHeight + Mathf.Sqrt(3)) / 2.0f, chunkSize.y / 2.0f);
         chunkAABB = new AABB(center, extents);
+
+        // Set all grass material parameters
+        grassMaterial.SetTexture("_NoiseTex", noiseTex);
+        grassMaterial.SetTexture("_WindTex", windTex);
+        grassMaterial.SetColor("_MainColour", mainColour);
+        grassMaterial.SetColor("_TipColour", tipColour);
+        grassMaterial.SetVector("_BendFactor", new Vector4(bendFactor.x, bendFactor.y, 0.0f, 0.0f));
+        grassMaterial.SetFloat("_AAFactor", ambientOcclusion);
+        grassMaterial.SetFloat("_Smoothness", smoothness);
+        grassMaterial.SetVector("_Min", new Vector4(min.x, min.y, 0, 0));
+        grassMaterial.SetVector("_Max", new Vector4(max.x, max.y, 0, 0));
+        grassMaterial.SetFloat("_WindAmplitude", windAmplitude);
+        grassMaterial.SetFloat("_WindFrequency", windFrequency);
+        grassMaterial.SetFloat("_WindSpeed", windSpeed);
+        grassMaterial.SetFloat("_WindNoiseFactor", windNoiseFactor);
+        grassMaterial.SetVector("_WindDirection", new Vector4(windDirection.x, windDirection.y, 0, 0));
 
         // Calculate grass positions
         // Each chunk has its own buffer which is calculated seperately
@@ -125,40 +163,6 @@ public class ProceduralGrass : MonoBehaviour
                 DispatchComputeShader(localMin, localMax, matrixBuffers[currentIndex], bufferSize);
             }
         }
-    }
-
-    void OnEnable()
-    {
-        if (grassMaterial == null) grassMaterial = grass.GetComponent<MeshRenderer>().sharedMaterial;
-
-        if (mowTex != null)
-        {
-            accumMowTex = new RenderTexture(mowTex.width, mowTex.height, 0, RenderTextureFormat.ARGBFloat);
-            accumMowTex.enableRandomWrite = true;
-            mowTex.enableRandomWrite = true;
-        }
-
-        // Get wind, size, and heightmap textures
-        noiseTex = GetComponent<ProceduralMesh>().noiseTex;
-        sizeTex = CalcNoise(pixSize, scale, amplitude, frequency, noise_origin);
-        windTex = CalcNoise(pixSize, windScale, windAmplitude, windFrequency, wind_origin);
-
-        // Amplitude of terrain heightmap
-        heightMapAmplitude = GetComponent<ProceduralMesh>().meshAmplitude;
-
-        // Set all grass material parameters
-        grassMaterial.SetTexture("_NoiseTex", noiseTex);
-        grassMaterial.SetTexture("_WindTex", windTex);
-        grassMaterial.SetColor("_MainColour", mainColour);
-        grassMaterial.SetColor("_TipColour", tipColour);
-        grassMaterial.SetVector("_BendFactor", new Vector4(bendFactor.x, bendFactor.y, 0.0f, 0.0f));
-        grassMaterial.SetFloat("_AAFactor", ambientOcclusion);
-        grassMaterial.SetFloat("_Smoothness", smoothness);
-        grassMaterial.SetVector("_Min", new Vector4(min.x, min.y, 0, 0));
-        grassMaterial.SetVector("_Max", new Vector4(max.x, max.y, 0, 0));
-        grassMaterial.SetFloat("_WindAmplitude", windAmplitude);
-        grassMaterial.SetFloat("_WindFrequency", windFrequency);
-        grassMaterial.SetVector("_WindDirection", new Vector4(windDirection.x, windDirection.y, 0, 0));
     }
 
     void Update()
@@ -341,7 +345,15 @@ public class ProceduralGrass : MonoBehaviour
             grassMesh = grass.GetComponent<MeshFilter>().sharedMesh;
         }
 
+        if (chunkAABB == null)
+        {
+            Vector3 center = Vector3.zero;
+            Vector3 extents = new Vector3(chunkSize.x/2.0f, (grassHeight + Mathf.Sqrt(3))/2.0f, chunkSize.y/2.0f);
+            chunkAABB = new AABB(center, extents);
+        }
+
         Matrix4x4[] grassMatrices;
+
         // One batch is rendered for each chunk
         for (int x = 0; x < chunkDim.x; x++)
         {
