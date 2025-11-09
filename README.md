@@ -14,3 +14,8 @@ as well as frustum culling (FrustumCulling.cs) (grass outside the view of the ca
 There is also a player character which can "mow" grass by moving over it. This is accomplished by placing a camera above the terrain (MowingCamera.cs) and capturing the
 position of the player in a texture, which is then sampled in the grass shader.
 
+![alt text](https://github.com/Grez00/Procedural-Grass/blob/9220865d71fed74627f336cb1f08c1e2c2e4f0a0/Assets/Screenshots/Screenshot%202025-11-09%20181826.png "Grass up close")
+
+![alt text](https://github.com/Grez00/Procedural-Grass/blob/9220865d71fed74627f336cb1f08c1e2c2e4f0a0/Assets/Screenshots/Screenshot%202025-11-09%20181735.png "Grass field")
+
+![alt text](https://github.com/Grez00/Procedural-Grass/blob/9220865d71fed74627f336cb1f08c1e2c2e4f0a0/Assets/Screenshots/Screenshot%202025-11-09%20182342.png "Mowed grass")
